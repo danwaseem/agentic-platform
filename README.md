@@ -55,14 +55,16 @@ A production-style agentic data platform built around a ReAct (Reason + Act) age
 | Layer | Technology |
 |---|---|
 | API | FastAPI 0.115, Uvicorn |
-| Agent | ReAct loop (custom), `agent/react_agent.py` |
+| Agent | LangGraph `StateGraph` — ReAct loop (Plan→Act→Observe→Respond) |
 | Event streaming | Apache Kafka 3.7 — KRaft mode, no Zookeeper |
-| Text-to-SQL | Ollama (llama3) + deterministic fallback map |
+| Text-to-SQL | Ollama (LLaMA 3) + deterministic fallback map |
 | Relational DB | MySQL 8.0 + SQLAlchemy + PyMySQL |
 | Document store | MongoDB 7.0 (agent traces + task metadata) |
 | Cache | Redis 7.2 (SQL results, search results, TTL=1h) |
 | Load testing | Locust 2.28 |
-| Tests | pytest + pytest-asyncio |
+| Tests | pytest + pytest-asyncio (32 unit tests, no infra required) |
+| CI/CD | GitHub Actions — unit tests + Docker build on push to `dev`/`main` |
+| Containerization | Dockerfile for API service; `docker compose` for all infra |
 
 ---
 
@@ -197,11 +199,24 @@ tests/test_text_to_sql.py::TestCacheKey::test_cache_key_is_stable               
 
 ---
 
+## CI/CD
+
+GitHub Actions runs on every push to `dev` or `main`, and on pull requests targeting `main`:
+
+1. **Unit Tests** — installs dependencies, runs `pytest tests/ -v` (32 tests, no infrastructure required)
+2. **Docker Build** — builds the API image (`Dockerfile`) after tests pass
+
+Workflow file: `.github/workflows/ci.yml`
+
+Branch model: feature work on `dev` → PR to `main` → CI gate must pass before merge.
+
+---
+
 ## Interview Explanation
 
 This project demonstrates five production engineering patterns in a single cohesive system:
 
-1. **Event-driven agent orchestration** — Tasks enter the system as Kafka events. The ReactAgent consumes them and runs a Plan→Act→Observe→Respond loop, choosing the right tool based on the task description. Every step is an event, making the system fully auditable.
+1. **Event-driven agent orchestration** — Tasks enter the system as Kafka events. The ReactAgent is built on a LangGraph `StateGraph` with typed `AgentState`, four nodes (plan, act, observe, respond), and a conditional edge that loops or terminates. Every step publishes an event to Kafka, making the system fully auditable.
 
 2. **Idempotency** — Every event carries a deterministic `idempotency_key` (SHA-256 of event type + payload). The agent checks MongoDB before processing and commits the key only after success, giving exactly-once semantics over an at-least-once Kafka consumer.
 
